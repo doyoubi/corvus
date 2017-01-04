@@ -58,6 +58,19 @@ TEST(test_socket_parse_addr_wrong) {
     PASS(NULL);
 }
 
+TEST(test_socket_address_to_str) {
+    struct address address;
+    strcpy(address.ip, "127.0.0.1");
+    address.port = 8080;
+    char str[30];
+    int len = socket_address_to_str(&address, str);
+
+    ASSERT(len == 14);
+    ASSERT(0 == strcmp(str, "127.0.0.1:8080"));
+
+    PASS(NULL);
+}
+
 TEST_CASE(test_socket) {
     RUN_TEST(test_socket_address_init);
     RUN_TEST(test_parse_port);

@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <execinfo.h>
 #include <getopt.h>
+#include <assert.h>
 #include "corvus.h"
 #include "mbuf.h"
 #include "slot.h"
@@ -22,6 +23,7 @@
 #define MIN_BUFSIZE 64
 
 static struct context *contexts;
+static pthread_mutex_t lock_conf_node = PTHREAD_MUTEX_INITIALIZER;
 
 void config_init()
 {
@@ -29,7 +31,11 @@ void config_init()
     strncpy(config.cluster, "default", CLUSTER_NAME_SIZE);
 
     config.bind = 12345;
-    memset(&config.node, 0, sizeof(struct node_conf));
+    // Just a dummy node list which will be destroyed in the first initialization
+    config.node = cv_calloc(1, sizeof(struct node_conf));
+    config.node->refcount = 1;
+    config.node->len = 0;
+
     config.thread = 4;
     config.loglevel = INFO;
     config.syslog = 0;
@@ -45,6 +51,35 @@ void config_init()
 
     memset(config.statsd_addr, 0, sizeof(config.statsd_addr));
     config.metric_interval = 10;
+}
+
+struct node_conf *conf_get_node()
+{
+    pthread_mutex_lock(&lock_conf_node);
+    int refcount = ATOMIC_INC(config.node->refcount, 1);
+    struct node_conf *node = config.node;
+    pthread_mutex_unlock(&lock_conf_node);
+    assert(refcount >= 1);
+    return node;
+}
+
+void conf_set_node(struct node_conf *new_node)
+{
+    pthread_mutex_lock(&lock_conf_node);
+    struct node_conf *old_node = config.node;
+    config.node = new_node;
+    pthread_mutex_unlock(&lock_conf_node);
+    conf_node_dec_ref(old_node);
+}
+
+void conf_node_dec_ref(struct node_conf *node)
+{
+    int refcount = ATOMIC_DEC(node->refcount, 1);
+    assert(refcount >= 0);
+    if (refcount > 0) return;
+
+    cv_free(node->addr);
+    cv_free(node);
 }
 
 void config_boolean(bool *item, char *value)
@@ -135,22 +170,30 @@ int config_add(char *name, char *value)
             memcpy(config.requirepass, value, strlen(value));
         }
     } else if (strcmp(name, "node") == 0) {
-        cv_free(config.node.addr);
-        memset(&config.node, 0, sizeof(config.node));
+        LOG(DEBUG, "`node` is changed to %s", value);
+        struct address *addr = NULL;
+        int addr_cnt = 0;
 
         char *p = strtok(value, ",");
         while (p) {
-            config.node.addr = cv_realloc(config.node.addr,
-                    sizeof(struct address) * (config.node.len + 1));
-
-            if (socket_parse_ip(p, &config.node.addr[config.node.len]) == -1) {
-                cv_free(config.node.addr);
-                return -1;
+            addr = cv_realloc(addr, sizeof(struct address) * (addr_cnt + 1));
+            if (socket_parse_ip(p, addr + addr_cnt) == CORVUS_ERR) {
+                cv_free(addr);
+                return CORVUS_ERR;
             }
-
-            config.node.len++;
+            addr_cnt++;
             p = strtok(NULL, ",");
         }
+        if (addr_cnt == 0) {
+            return CORVUS_ERR;
+        }
+
+        struct node_conf *node = cv_malloc(sizeof(struct node_conf));
+        node->addr = addr;
+        node->len = addr_cnt;
+        node->refcount = 1;
+        conf_set_node(node);
+        LOG(DEBUG, "length of `node` is %d", node->len);
     } else if (strcmp(name, "slowlog-log-slower-than") == 0) {
         config.slowlog_log_slower_than = atoi(value);
     } else if (strcmp(name, "slowlog-max-len") == 0) {
@@ -158,7 +201,7 @@ int config_add(char *name, char *value)
     } else if (strcmp(name, "slowlog-statsd-enabled") == 0) {
         config.slowlog_statsd_enabled = atoi(value);
     }
-    return 0;
+    return CORVUS_OK;
 }
 
 int read_line(char **line, size_t *bytes, FILE *fp)
@@ -595,7 +638,7 @@ int main(int argc, const char *argv[])
         usage(argv[0]);
         return EXIT_FAILURE;
     }
-    if (config.node.len <= 0) {
+    if (config.node->len <= 0) {
         fprintf(stderr, "Error: invalid upstream list, `node` should be set to a valid nodes list.\n");
         return EXIT_FAILURE;
     }
@@ -668,7 +711,8 @@ int main(int argc, const char *argv[])
     destroy_contexts();
     cmd_map_destroy();
     cv_free(config.requirepass);
-    cv_free(config.node.addr);
+    conf_node_dec_ref(config.node);
+    pthread_mutex_destroy(&lock_conf_node);
     if (config.syslog) closelog();
     return EXIT_SUCCESS;
 }

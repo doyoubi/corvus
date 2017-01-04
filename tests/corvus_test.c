@@ -3,6 +3,7 @@
 #include "test.h"
 #include "corvus.h"
 #include "slot.h"
+#include "alloc.h"
 
 static void usage(const char *name)
 {
@@ -83,7 +84,9 @@ int main(int argc, const char *argv[])
     build_contexts();
     struct context *contexts = get_contexts();
 
-    memcpy(&config.node, &conf, sizeof(config.node));
+    config.node = cv_malloc(sizeof(struct node_conf));
+    memset(config.node, 0, sizeof(struct node_conf));
+    config.node->refcount = 1;
     slot_start_manager(&contexts[config.thread]);
 
     RUN_CASE(test_slot);
@@ -108,6 +111,7 @@ int main(int argc, const char *argv[])
         context_free(&contexts[i]);
     }
 
+    cv_free(config.node);
     destroy_contexts();
 
     report();

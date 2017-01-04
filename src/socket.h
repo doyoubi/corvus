@@ -31,6 +31,7 @@ int socket_set_timeout(int fd, int timeout);
 int socket_parse_port(char *ptr, uint16_t *res);
 int socket_parse_addr(char *addr, struct address *address);
 int socket_parse_ip(char *addr, struct address *address);
+int socket_address_to_str(struct address *address, char *str);
 int socket_create_eventfd();
 int socket_trigger_event(int evfd);
 

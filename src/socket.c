@@ -372,6 +372,15 @@ int socket_parse_addr(char *addr, struct address *address)
     return port;
 }
 
+int socket_address_to_str(struct address *address, char *str)
+{
+    strcpy(str, address->ip);
+    size_t i = strlen(str);
+    str[i++] = ':';
+    sprintf(str + i, "%u", address->port);
+    return strlen(str);
+}
+
 int socket_create_eventfd()
 {
     int fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);

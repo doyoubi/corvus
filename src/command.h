@@ -144,6 +144,7 @@
     HANDLER(INFO,              EXTRA,    UNKNOWN) \
     HANDLER(PROXY,             EXTRA,    UNKNOWN) \
     HANDLER(SLOWLOG,           EXTRA,    UNKNOWN) \
+    HANDLER(CONFIG,            EXTRA,    UNKNOWN) \
     HANDLER(QUIT,              EXTRA,    UNKNOWN) \
     HANDLER(SELECT,            UNIMPL,   UNKNOWN) \
     HANDLER(TIME,              EXTRA,    UNKNOWN)
